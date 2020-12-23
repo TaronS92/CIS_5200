@@ -1,0 +1,108 @@
+--CIS 5200 Project Lab
+--Amazon Movie Review Analysis
+
+--PART 1 
+--Amazon Movie Review (Streaming & DVD) top 100 for timeframe of review data
+
+--Get work files from AWS:
+wget -O amazon_data1.tsv.gz https://s3.amazonaws.com/amazon-reviews-pds/tsv/amazon_reviews_us_Digital_Video_Download_v1_00.tsv.gz
+wget -O amazon_data2.tsv.gz https://s3.amazonaws.com/amazon-reviews-pds/tsv/amazon_reviews_us_Video_DVD_v1_00.tsv.gz
+wget -O amazon_data3.tsv.gz https://s3.amazonaws.com/amazon-reviews-pds/tsv/amazon_reviews_us_Video_v1_00.tsv.gz
+
+--Create work directory:
+hdfs dfs -mkdir amazon_data
+
+--Unzip and save .tsv files to HDFS:
+gzip -d amazon_data1.tsv.gz | hdfs dfs -put amazon_data1.tsv amazon_data
+gzip -d amazon_data2.tsv.gz | hdfs dfs -put amazon_data2.tsv amazon_data
+gzip -d amazon_data3.tsv.gz | hdfs dfs -put amazon_data3.tsv amazon_data
+
+--New terminal – connect to HIVE:
+hdfs dfs -chmod -R o+w .
+beeline
+use <your database name>
+
+--Create table to store data from two previously unzipped files:
+CREATE EXTERNAL TABLE if not exists amazon (
+marketplace string,
+customer_id string,
+review_id string, 
+product_id string,
+product_parent string,
+product_title string,
+product_category string,
+star_rating int,
+helpful_votes int,
+total_votes int,
+vine string,
+verified_purchase string,
+review_headline string,
+review_body string,
+review_date date)
+ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t' 
+STORED AS TEXTFILE LOCATION '/user/nrobert/amazon_data'
+TBLPROPERTIES ('skip.header.line.count'='1');
+
+--Review table headers:
+DESCRIBE amazon;
+
+--Review disctinct titles
+SELECT DISTINCT PRODUCT_ID, PRODUCT_TITLE FROM AMAZON;
+
+--Count disctinct titles
+SELECT COUNT(DISTINCT PRODUCT_ID) FROM AMAZON;
+
+--Review review years and counts 
+SELECT EXTRACT(YEAR FROM REVIEW_DATE) AS YEAR FROM AMAZON
+ORDER BY YEAR
+
+SELECT EXTRACT(YEAR FROM REVIEW_DATE) AS YEAR,
+COUNT (*) AS YEAR_COUNT
+FROM AMAZON
+GROUP BY EXTRACT(YEAR FROM REVIEW_DATE)   
+ORDER BY YEAR;
+
+--Run query to select top 100 movie reviews by average star rating
+SELECT product_title,  ROUND(avg(star_rating), 2) as average_rating, COUNT(review_id) as review_count   FROM AMAZON 
+WHERE (REVIEW_DATE >= '01-JAN-05' AND REVIEW_DATE <= '31-DEC-15')
+GROUP by product_title
+HAVING avg(star_rating) >= 5 
+ORDER by review_count DESC, average_rating;
+
+--Run query to select top 100 movie reviews by average star rating and count of ratings
+SELECT 
+product_title, 
+ROUND(avg(star_rating), 2) as average_rating, 
+COUNT(review_id) as review_count
+FROM amazon
+WHERE (review_date >= '01-Jan-05' AND review_date <= '31-Dec-15') and (product_title != 'Pilot')
+GROUP by product_title HAVING avg(star_rating) >= 4.5
+ORDER by review_count DESC
+LIMIT 100;
+
+
+--Create tmp directory:
+Hdfs dfs -mkdir tmp;
+
+--Create Top 100 table by avg(star_rating) and review count and Save as comma delimited file in HDFS tmp directory:
+CREATE TABLE IF NOT EXISTS amazon_top
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY ","
+STORED AS TEXTFILE LOCATION "/user/nrobert/tmp"
+AS
+SELECT 
+product_title, 
+ROUND(avg(star_rating), 2) as average_rating, 
+COUNT(review_id) as review_count
+FROM amazon
+WHERE (review_date >= '01-Jan-05' AND review_date <= '31-Dec-15') and (product_title != 'Pilot')
+GROUP by product_title HAVING avg(star_rating) >= 4.5
+ORDER by review_count DESC
+LIMIT 100;
+
+
+--View Top 100 file:
+hdfs dfs -cat tmp/000000_0
+hdfs dfs -put tmp/000000_0 
+
+
